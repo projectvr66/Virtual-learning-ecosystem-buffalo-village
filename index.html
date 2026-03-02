@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="th" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบนิเวศการเรียนรู้เสมือนจริง - หมู่บ้านอนุรักษ์ควายไทย</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/_sdk/element_sdk.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* ตั้งค่าพื้นฐานให้รองรับการ Scroll แบบนุ่มนวล */
+    html {
+        scroll-behavior: smooth;
+    }
+    body {
+      box-sizing: border-box;
+      font-family: 'Prompt', sans-serif;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    
+    * {
+      font-family: 'Prompt', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    .map-container {
+      position: relative;
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      animation: scaleIn 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+      will-change: transform, opacity;
+      contain: layout paint;
+    }
+    
+    .map-image {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      transition: transform 0.3s ease-out;
+      transform: translateZ(0);
+    }
+
+    .pin {
+      position: absolute;
+      transform: translate3d(-50%, -100%, 0);
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      z-index: 10;
+      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+      opacity: 0;
+      animation: pinFadeIn 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards, bounce-pin 3s ease-in-out infinite;
+      will-change: transform, opacity;
+    }
+    
+    .pin:hover {
+      transform: translate3d(-50%, -100%, 0) scale(1.2);
+      z-index: 20;
+    }
+    
+    .pin.active {
+      transform: translate3d(-50%, -100%, 0) scale(1.3);
+      z-index: 30;
+    }
+    
+    .pin svg {
+      width: clamp(35px, 6vw, 60px); 
+      height: clamp(35px, 6vw, 60px);
+      position: relative;
+      z-index: 1;
+    }
+    
+    .pulse-ring {
+      position: absolute;
+      bottom: 5px;
+      left: 50%;
+      transform: translate3d(-50%, 0, 0);
+      width: clamp(15px, 3vw, 25px);
+      height: clamp(5px, 1vw, 10px);
+      border-radius: 50%;
+      animation: pulse 2s ease-out infinite;
+      opacity: 0.6;
+      will-change: transform, opacity;
+    }
+    
+    @keyframes pulse {
+      0% { transform: translate3d(-50%, 0, 0) scale(0.5); opacity: 0.8; }
+      100% { transform: translate3d(-50%, 0, 0) scale(2.5); opacity: 0; }
+    }
+
+    @keyframes bounce-pin {
+      0%, 100% { transform: translate3d(-50%, -100%, 0); }
+      50% { transform: translate3d(-50%, calc(-100% - 10px), 0); }
+    }
+
+    .pin:nth-child(odd) { animation-delay: 0.1s, 0.5s; }
+    .pin:nth-child(even) { animation-delay: 0.3s, 1s; }
+
+    @keyframes pinFadeIn {
+      from { opacity: 0; transform: translate3d(-50%, -100%, 0) scale(0); }
+      to { opacity: 1; transform: translate3d(-50%, -100%, 0) scale(1); }
+    }
+
+    .pin-tooltip {
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translate3d(-50%, -15px, 0);
+      background: rgba(15, 32, 39, 0.95);
+      color: #fef3c7;
+      padding: clamp(6px, 1.5vw, 8px) clamp(10px, 3vw, 16px);
+      border-radius: 8px;
+      font-size: clamp(12px, 2.5vw, 16px);
+      font-weight: 500;
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: none;
+      z-index: 50;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      will-change: transform, opacity;
+    }
+
+    .pin-tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border-width: 6px;
+      border-style: solid;
+      border-color: rgba(15, 32, 39, 0.95) transparent transparent transparent;
+    }
+
+    .pin:hover .pin-tooltip,
+    .pin.force-show-tooltip .pin-tooltip {
+      opacity: 1;
+      visibility: visible;
+      transform: translate3d(-50%, -5px, 0);
+    }
+
+    /* 🟢 แก้ไขตรงนี้: ปรับ Overlay ให้คลุมเต็มจอเป๊ะๆ 🟢 */
+    .modal-overlay, .game-menu-overlay {
+      display: none;
+      position: fixed;
+      inset: 0; /* ตรึง 4 มุม */
+      width: 100vw; /* กว้าง 100% ของจอ */
+      height: 100vh;
+      height: 100dvh; /* ความสูงแบบ Dynamic รองรับมือถือที่มีแถบ URL ขยับขึ้นลง */
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 9999; /* ให้ลอยอยู่บนสุดเสมอ */
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      will-change: opacity;
+    }
+
+    .modal-overlay.active, .game-menu-overlay.active {
+      display: flex;
+      opacity: 1;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content, .game-menu-content {
+      position: relative;
+      max-width: 600px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      transform: translate3d(0,0,0) scale(0.9);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      will-change: transform;
+    }
+    
+    .modal-overlay.active .modal-content,
+    .game-menu-overlay.active .game-menu-content {
+        transform: translate3d(0,0,0) scale(1);
+    }
+    
+    .game-menu-content {
+        max-width: 400px;
+        background: linear-gradient(135deg, #2e1065 0%, #db2777 100%);
+        padding: 30px;
+        border: 2px solid rgba(255,255,255,0.2);
+        text-align: center;
+    }
+
+    .sidebar-menu {
+        position: fixed;
+        top: 55%;
+        left: 20px;
+        transform: translate3d(0, -50%, 0);
+        width: 290px;
+        max-height: 75vh;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.15) 100%);
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-radius: 16px;
+        padding: 15px 10px 15px 15px;
+        z-index: 45;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        display: flex;
+        flex-direction: column;
+        will-change: transform;
+    }
+
+    .sidebar-menu.collapsed {
+        transform: translate3d(calc(-100% - 25px), -50%, 0); 
+    }
+
+    .sidebar-toggle-btn {
+        position: absolute;
+        top: 20px;
+        right: -35px;
+        width: 35px;
+        height: 50px;
+        background: rgba(255, 255, 255, 0.4);
+        color: #1f2937;
+        border-radius: 0 10px 10px 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 5px 0 15px rgba(0,0,0,0.1);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        border-left: none;
+        transition: background 0.2s;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+    .sidebar-toggle-btn:hover { background: rgba(255, 255, 255, 0.7); }
+
+    .sidebar-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.35);
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #1f2937;
+        text-align: left;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        width: 100%;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        transform: translateZ(0);
+    }
+    .sidebar-item:hover {
+        background: rgba(255, 255, 255, 0.7);
+        border-color: rgba(255, 255, 255, 0.8);
+        transform: translate3d(5px, 0, 0);
+    }
+
+    @media (max-width: 768px) {
+        .sidebar-menu { left: 10px; width: 250px; top: 60%; }
+        .sidebar-menu.collapsed { transform: translate3d(calc(-100% - 15px), -50%, 0); } 
+    }
+
+    .modal-poster {
+      width: 100%;
+      height: auto;
+      border-radius: 16px 16px 0 0;
+      display: block;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.6);
+      border: none;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #fff;
+      z-index: 1001;
+      transition: background 0.2s, transform 0.2s;
+    }
+
+    .modal-close:hover {
+      background: rgba(220, 38, 38, 0.9);
+      transform: scale(1.1);
+    }
+
+    .game-btn-float {
+      cursor: pointer;
+      animation: bounce-slow 3s infinite;
+      box-shadow: 0 10px 25px rgba(255, 126, 95, 0.6);
+      padding: clamp(10px, 3vw, 16px) clamp(20px, 5vw, 24px);
+      font-size: clamp(14px, 4vw, 18px);
+      will-change: transform;
+    }
+    .game-btn-float:hover {
+      transform: scale(1.05);
+      animation-play-state: paused;
+    }
+    
+    @keyframes bounce-slow {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      50% { transform: translate3d(0, -8px, 0); }
+    }
+    
+    .game-option {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        background: rgba(255,255,255,0.1);
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        transition: all 0.2s;
+        border: 1px solid rgba(255,255,255,0.1);
+        text-decoration: none;
+        color: white;
+        cursor: pointer;
+        width: 100%;
+        transform: translateZ(0);
+    }
+    .game-option:active { transform: scale(0.98); }
+    .game-option:hover {
+        background: rgba(255,255,255,0.2);
+        transform: translate3d(5px, 0, 0);
+    }
+    .game-icon {
+        font-size: 24px;
+        background: white;
+        min-width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #333;
+    }
+    
+    .audio-control {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 40;
+        background: rgba(0,0,0,0.5);
+        color: white;
+        padding: 10px;
+        border-radius: 50%;
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        cursor: pointer;
+        transition: all 0.3s;
+        border: 1px solid rgba(255,255,255,0.2);
+    }
+    .audio-control:hover {
+        background: rgba(0,0,0,0.8);
+        transform: scale(1.1);
+    }
+    
+    @keyframes scaleIn {
+        from { opacity: 0; transform: translate3d(0,0,0) scale(0.95); }
+        to { opacity: 1; transform: translate3d(0,0,0) scale(1); }
+    }
+    
+    .fade-enter { opacity: 0; transform: translate3d(0,0,0) scale(0.98); }
+    .fade-enter-active { opacity: 1; transform: translate3d(0,0,0) scale(1); transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    .fade-exit { opacity: 1; transform: translate3d(0,0,0) scale(1); }
+    .fade-exit-active { opacity: 0; transform: translate3d(0,0,0) scale(1.02); transition: opacity 0.4s ease, transform 0.4s ease; pointer-events: none; }
+
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 10px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 10px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.4); }
+
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+ </head>
+ <body class="h-full bg-gradient-to-br from-amber-900 via-yellow-900 to-green-900 overflow-hidden" style="background-attachment: fixed">
+  
+ <audio id="bg-music" loop preload="metadata">
+      <source src="thai-music.mp3" type="audio/mp3">
+      Your browser does not support the audio element.
+  </audio>
+
+  <div id="welcome-screen" class="fixed inset-0 w-full h-full flex items-center justify-center p-4 md:p-8 z-50 overflow-y-auto" style="background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);">
+   <div class="w-full max-w-2xl py-10">
+    <div class="mb-8 md:mb-12 h-1 bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 rounded-full"></div>
+    <div class="text-center mb-8 md:mb-10">
+     <div class="inline-block p-6 bg-gradient-to-br from-amber-400/20 to-orange-500/20 rounded-2xl border border-amber-400/30 backdrop-blur-sm transform translate-z-0">
+      <div class="text-6xl md:text-7xl" style="filter: drop-shadow(0 4px 8px rgba(251, 191, 36, 0.3))">
+       🐃
+      </div>
+     </div>
+    </div>
+    <h1 class="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-yellow-100 mb-6 text-center leading-tight">ระบบนิเวศการเรียนรู้เสมือนจริง</h1>
+    <div class="text-center mb-8 border-l-4 border-r-4 border-amber-400/40 pl-6 pr-6 py-4 bg-white/5 backdrop-blur-sm rounded-lg mx-4">
+     <p class="text-xl md:text-3xl font-bold text-amber-100 mb-3">หมู่บ้านอนุรักษ์ควายไทย</p>
+     <div class="h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent mb-3"></div>
+     <p class="text-base md:text-lg text-amber-200/80">อนุรักษ์วัฒนธรรมท้องถิ่นของจังหวัดสุพรรณบุรี</p>
+    </div>
+    <p class="text-center text-base md:text-lg text-gray-200 mb-10 leading-relaxed max-w-xl mx-auto px-4">เรียนรู้เกี่ยวกับหมู่บ้านอนุรักษ์ควายไทยและวัฒนธรรมท้องถิ่นที่มีความหมายต่อการอนุรักษ์ควายของไทย</p>
+    <div class="text-center mb-12">
+        <button onclick="enterMap()" class="group relative px-10 md:px-16 py-3 md:py-4 bg-gradient-to-r from-amber-500 via-yellow-400 to-orange-500 hover:from-amber-400 hover:via-yellow-300 hover:to-orange-400 text-white font-bold text-lg md:text-xl rounded-xl shadow-2xl hover:shadow-3xl transition-all duration-300 transform hover:scale-105 active:scale-95 overflow-hidden">
+          <div class="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <span class="relative flex items-center justify-center gap-2">
+           <svg class="w-6 h-6" fill="currentColor" viewbox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+           </svg> เข้าสู่ระบบ 
+          </span> 
+        </button>
+    </div>
+   </div>
+  </div>
+
+  <div id="map-screen" class="fixed inset-0 w-full h-full overflow-y-auto overflow-x-hidden hidden" style="background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);">
+   
+   <div id="sidebar-menu" class="sidebar-menu">
+       <div class="sidebar-toggle-btn" onclick="toggleSidebar()" title="ซ่อน/แสดง รายชื่อ">
+           <svg id="toggle-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+           </svg>
+       </div>
+       
+       <h2 class="text-lg font-bold text-gray-800 mb-2 border-b border-gray-400/30 pb-2">📍 เลือกจุดการเรียนรู้</h2>
+       <div id="sidebar-list-container" class="overflow-y-auto pr-2 custom-scroll flex flex-col gap-1 pb-4"></div>
+   </div>
+
+   <div class="min-h-full p-4 md:p-10 relative pb-24"> 
+    
+    <div class="mb-4 md:mb-6 flex justify-start items-center max-w-6xl mx-auto pl-10 md:pl-0">
+        <button onclick="goBack()" class="group flex items-center gap-2 px-4 md:px-6 py-2 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg backdrop-blur-sm transition-all active:scale-95">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg><span>กลับ</span> 
+        </button>
+    </div>
+
+    <header class="text-center mb-6 md:mb-8">
+     <div class="text-4xl md:text-5xl mb-3 animate-bounce" style="animation-delay: 0s">🐃</div>
+     <h1 id="map-title" class="text-2xl md:text-4xl font-bold text-amber-100 mb-2" style="text-shadow: 2px 2px 8px rgba(0,0,0,0.5)">ระบบนิเวศการเรียนรู้เสมือนจริง</h1>
+     <p class="text-lg md:text-2xl font-semibold text-amber-200 mb-2">หมู่บ้านอนุรักษ์ควายไทย</p>
+     <p class="text-amber-300/80 text-sm md:text-lg">แตะที่หมุดหรือเลือกจากเมนูซ้ายมือ</p>
+    </header>
+
+    <div class="map-container" id="map-wrapper">
+        <img src="https://i.postimg.cc/sgqRdhGQ/Gemini-Generated-Image-zgi0w9zgi0w9zgi0.png" alt="Interactive Map" class="map-image" id="map-image" fetchpriority="high" decoding="async"> 
+        <div id="pins-container"></div>
+    </div>
+    
+    <button onclick="toggleMusic()" class="audio-control" id="audio-btn" title="ปิด/เปิดเพลง">
+        <svg id="icon-sound-on" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+        <svg id="icon-sound-off" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path></svg>
+    </button>
+
+    <button onclick="openGameMenu()" class="game-btn-float fixed bottom-6 right-6 z-50 flex items-center gap-2 md:gap-3 bg-gradient-to-r from-purple-600 via-pink-600 to-red-500 text-white rounded-full font-bold shadow-2xl transition-all border-2 border-white/20">
+        <span class="text-2xl md:text-3xl">🎮</span>
+        <span>กิจกรรมสันทนาการ</span>
+    </button>
+
+    <div class="mt-12 text-center pb-8">
+     <div class="flex justify-center gap-6 text-3xl md:text-5xl opacity-70 animate-pulse"><span>🐃</span> <span>🌾</span> <span>🐃</span></div>
+     <p class="text-amber-200/60 text-xs md:text-sm mt-4 font-semibold">ยืนยาวเฉพาะท้องถิ่น ภูมิปัญญาท้องถิ่นของไทย</p>
+    </div>
+
+   </div>
+  </div>
+
+  <div class="game-menu-overlay" id="game-menu-overlay">
+      <div class="game-menu-content">
+          <button class="modal-close" onclick="closeGameMenu()">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+          </button>
+          
+          <div class="text-4xl mb-4">🎪</div>
+          <h2 class="text-xl md:text-2xl font-bold text-white mb-6">เลือกเกมที่ต้องการเล่น</h2>
+          
+          <a href="https://buffalogames.my.canva.site/c23dy2w6xy2gtd4x" target="_blank" rel="noopener noreferrer" class="game-option">
+              <div class="game-icon">⚡</div>
+              <div class="text-left">
+                  <div class="font-bold text-base md:text-lg">Thai Buffalo Adventure Quiz</div>
+                  <div class="text-xs text-gray-300">คำถามนี้ตอบอะไรดีนะ</div>
+              </div>
+          </a>
+
+          <a href="https://buffalogames.my.canva.site/c23et98hen1dskb6" target="_blank" rel="noopener noreferrer" class="game-option">
+              <div class="game-icon">🎯</div>
+              <div class="text-left">
+                  <div class="font-bold text-base md:text-lg">Thai Buffalo Flashcards</div>
+                  <div class="text-xs text-gray-300">มาเรียนรู้และตอบคำถามกัน</div>
+              </div>
+          </a>
+
+          <a href="https://vegetables-fiuits-market.my.canva.site/c06mkpj7jt501dqz" target="_blank" rel="noopener noreferrer" class="game-option">
+              <div class="game-icon">🧩</div>
+              <div class="text-left">
+                  <div class="font-bold text-base md:text-lg">Buffalo Matching</div>
+                  <div class="text-xs text-gray-300">หาคู่น้องให้เจอกันดีกว่า</div>
+              </div>
+          </a>
+
+          <a href="https://buffalogames.my.canva.site/c20tehx3gymz8c2j" target="_blank" rel="noopener noreferrer" class="game-option">
+              <div class="game-icon">❓</div>
+              <div class="text-left">
+                  <div class="font-bold text-base md:text-lg">Buffalo Quiz V.1</div>
+                  <div class="text-xs text-gray-300">จะตอบถูกมั้ยนะ?</div>
+              </div>
+          </a>
+          
+          <a href="https://buffalogames.my.canva.site/c20r8x393w5zacfv" target="_blank" rel="noopener noreferrer" class="game-option">
+              <div class="game-icon">✨</div>
+              <div class="text-left">
+                  <div class="font-bold text-base md:text-lg">Buffalo Quiz V.2</div>
+                  <div class="text-xs text-gray-300">มาลุยกันต่อกับข้อคำถาม</div>
+              </div>
+          </a>
+      </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay">
+   <div class="modal-content">
+    <button class="modal-close" onclick="closeModal()">
+     <svg width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+    </button> 
+    <img id="modal-poster" class="modal-poster" src="" alt="Poster" loading="lazy" decoding="async">
+    <div id="modal-video-container" class="w-full bg-black" style="display: none;">
+     <div style="position: relative; width: 100%; padding-bottom: 56.25%;">
+      <iframe id="modal-video" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; border-radius: 16px 16px 0 0;" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"></iframe>
+     </div>
+    </div>
+   </div>
+  </div>
+
+  <script>
+    const welcomeScreen = document.getElementById('welcome-screen');
+    const mapScreen = document.getElementById('map-screen');
+    const audio = document.getElementById('bg-music');
+    let isMusicPlaying = false;
+    let activeTooltipPin = null;
+    let isPreloaded = false; 
+
+    function playMusic() {
+        audio.volume = 0.5;
+        audio.play().then(() => {
+            isMusicPlaying = true;
+            updateAudioIcon();
+        }).catch(error => console.log("Audio play failed:", error));
+    }
+
+    function stopMusic() {
+        audio.pause();
+        audio.currentTime = 0;
+        isMusicPlaying = false;
+        updateAudioIcon();
+    }
+
+    function toggleMusic() {
+        if (isMusicPlaying) {
+            audio.pause();
+            isMusicPlaying = false;
+        } else {
+            audio.play();
+            isMusicPlaying = true;
+        }
+        updateAudioIcon();
+    }
+
+    function updateAudioIcon() {
+        const iconOn = document.getElementById('icon-sound-on');
+        const iconOff = document.getElementById('icon-sound-off');
+        if (isMusicPlaying) {
+            iconOn.classList.remove('hidden');
+            iconOff.classList.add('hidden');
+        } else {
+            iconOn.classList.add('hidden');
+            iconOff.classList.remove('hidden');
+        }
+    }
+
+    function preloadPosters() {
+        if(isPreloaded) return;
+        isPreloaded = true;
+        setTimeout(() => {
+            locations.forEach(loc => {
+                if(loc.poster && !loc.youtubeId) {
+                    const img = new Image();
+                    img.src = loc.poster;
+                }
+            });
+        }, 1500);
+    }
+
+    function enterMap() {
+      playMusic();
+      welcomeScreen.classList.add('fade-exit-active');
+      
+      setTimeout(() => {
+        welcomeScreen.classList.add('hidden');
+        welcomeScreen.classList.remove('fade-exit-active');
+        mapScreen.classList.remove('hidden');
+        
+        const sidebar = document.getElementById('sidebar-menu');
+        if (window.innerWidth <= 768) {
+            sidebar.classList.add('collapsed');
+            document.getElementById('toggle-icon').setAttribute('d', 'M9 5l7 7-7 7');
+        }
+
+        window.requestAnimationFrame(() => {
+            mapScreen.classList.add('fade-enter');
+            window.requestAnimationFrame(() => {
+                mapScreen.classList.add('fade-enter-active');
+                mapScreen.classList.remove('fade-enter');
+                preloadPosters();
+                
+                // 🟢 ล้างคราบ Transform ทิ้งเพื่อไม่ให้รบกวน Fixed Position
+                setTimeout(() => mapScreen.classList.remove('fade-enter-active'), 500);
+            });
+        });
+      }, 400);
+    }
+
+    function goBack() {
+      stopMusic();
+      mapScreen.classList.add('fade-exit-active');
+      
+      setTimeout(() => {
+        mapScreen.classList.add('hidden');
+        mapScreen.classList.remove('fade-exit-active', 'fade-enter-active');
+        welcomeScreen.classList.remove('hidden');
+        
+        window.requestAnimationFrame(() => {
+            welcomeScreen.classList.add('fade-enter');
+            window.requestAnimationFrame(() => {
+                welcomeScreen.classList.add('fade-enter-active');
+                welcomeScreen.classList.remove('fade-enter');
+                setTimeout(() => welcomeScreen.classList.remove('fade-enter-active'), 500);
+            });
+        });
+      }, 400);
+    }
+
+    const locations = [
+      {
+        id: "p1",
+        displayNumber: "1",
+        name: "📖 โปสเตอร์ที่ 1: จุดเริ่มต้นแห่งการอนุรักษ์ควายไทย 📖",
+        menuName: "โปสเตอร์ที่ 1: จุดเริ่มต้นแห่งการอนุรักษ์ควายไทย",
+        color: "#f59e0b",
+        position: { x: 75, y: 75 },
+        poster: "https://i.postimg.cc/VLG5yzgG/ประวัติความเป็นมา.png",
+        youtubeId: null
+      },
+      {
+        id: "p2",
+        displayNumber: "2",
+        name: "📖 โปสเตอร์ที่ 2: คุณค่าควายไทย สัตว์คู่แผ่นดิน 📖",
+        menuName: "โปสเตอร์ที่ 2: คุณค่าควายไทย สัตว์คู่แผ่นดิน",
+        color: "#f59e0b",
+        position: { x: 62, y: 75 },
+        poster: "https://i.postimg.cc/J0scbpzB/คุณค่าควายไทย_สัตว์คู่แผ่นดิน.png",
+        youtubeId: null
+      },
+      {
+        id: "p3",
+        displayNumber: "3",
+        name: "📖 โปสเตอร์ที่ 3: ควายไทยมรดกทางวัฒนธรรม 📖",
+        menuName: "โปสเตอร์ที่ 3: ควายไทยมรดกทางวัฒนธรรม",
+        color: "#f59e0b",
+        position: { x: 70, y: 55 },
+        poster: "https://i.postimg.cc/7L4Vp1mK/ควายไทยมรดกทางวัฒนธรรมของชาติ.png",
+        youtubeId: null
+      },
+      {
+        id: "p4",
+        displayNumber: "4",
+        name: "📖 โปสเตอร์ที่ 4: การเปลี่ยนแปลงจำนวนประชากรควายไทย 📖",
+        menuName: "โปสเตอร์ที่ 4: การเปลี่ยนแปลงจำนวนประชากรควายไทย",
+        color: "#f59e0b",
+        position: { x: 55, y: 50 },
+        poster: "https://i.postimg.cc/WbkNFsST/การเปลี่ยนแปลงจำนวนประชากรควายไทย.png",
+        youtubeId: null
+      },
+      {
+        id: "p5",
+        displayNumber: "5",
+        name: "📖 โปสเตอร์ที่ 5: ความสามารถของควาย 📖",
+        menuName: "โปสเตอร์ที่ 5: ความสามารถของควาย",
+        color: "#f59e0b",
+        position: { x: 60, y: 30 },
+        poster: "https://i.postimg.cc/J0Fxg92g/ความสามารถน้องควาย.png",
+        youtubeId: null
+      },
+      {
+        id: "p6",
+        displayNumber: "6",
+        name: "📖 โปสเตอร์ที่ 6: ความแตกต่างพันธุ์ควายไทย 📖",
+        menuName: "โปสเตอร์ที่ 6: ความแตกต่างพันธุ์ควายไทย",
+        color: "#f59e0b",
+        position: { x: 50, y: 25 },
+        poster: "https://i.postimg.cc/1RLgYCYk/ความแตกต่างพันธุ์ควายไทย.png",
+        youtubeId: null
+      },
+      {
+        id: "p7",
+        displayNumber: "7",
+        name: "📖 โปสเตอร์ที่ 7: การแสดงควาย 📖",
+        menuName: "โปสเตอร์ที่ 7: การแสดงควาย",
+        color: "#f59e0b",
+        position: { x: 40, y: 20 },
+        poster: "https://i.postimg.cc/W3yVzykN/การแสดงควาย.png",
+        youtubeId: null
+      },
+      {
+        id: "m1",
+        displayNumber: "1",
+        name: "🎥 สื่อการเรียนรู้เสมือนจริงที่ 1 : หมู่บ้านอนุรักษ์ควายไทย 🎥",
+        menuName: "สื่อการเรียนรู้เสมือนจริงที่ 1 : หมู่บ้านอนุรักษ์ควายไทย",
+        color: "#10b981", 
+        position: { x: 40, y: 55 },
+        poster: "https://i.postimg.cc/NF3gqZkN/Buffalo-Farm.jpg",
+        youtubeId: "Q8QrETuNeS0"
+      },
+      {
+        id: "m2",
+        displayNumber: "2",
+        name: "🎥 สื่อการเรียนรู้เสมือนจริงที่ 2 : ความรู้พันธุ์ควายไทย 🎥",
+        menuName: "สื่อการเรียนรู้เสมือนจริงที่ 2 : ความรู้พันธุ์ควายไทย",
+        color: "#10b981", 
+        position: { x: 27, y: 45 },
+        poster: "https://i.postimg.cc/3x7tN2mY/Water.jpg",
+        youtubeId: "dkxKZdsjT7U"
+      },
+      {
+        id: "m3",
+        displayNumber: "3",
+        name: "🎥 สื่อการเรียนรู้เสมือนจริงที่ 3 : การแสดงควายไทย 🎥",
+        menuName: "สื่อการเรียนรู้เสมือนจริงที่ 3 : การแสดงควายไทย",
+        color: "#10b981", 
+        position: { x: 20, y: 35 },
+        poster: "https://i.postimg.cc/vB9RyVmg/Cultural-Center.jpg",
+        youtubeId: "9nzu_CXBTiM"
+      }
+    ];
+
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar-menu');
+        const icon = document.getElementById('toggle-icon');
+        
+        sidebar.classList.toggle('collapsed');
+        
+        if (sidebar.classList.contains('collapsed')) {
+            icon.setAttribute('d', 'M9 5l7 7-7 7');
+        } else {
+            icon.setAttribute('d', 'M15 19l-7-7 7-7');
+        }
+    }
+
+    const pinsContainer = document.getElementById('pins-container');
+    const sidebarListContainer = document.getElementById('sidebar-list-container');
+
+    function createPinsAndList() {
+      const fragmentPins = document.createDocumentFragment();
+      const mediaSection = document.createElement('div');
+      mediaSection.innerHTML = '<div class="text-sm font-bold text-emerald-700 bg-white/50 rounded px-3 py-1.5 mt-2 mb-2 shadow-sm flex items-center gap-2">🎥 สื่อการเรียนรู้เสมือนจริง</div>';
+      
+      const posterSection = document.createElement('div');
+      posterSection.innerHTML = '<div class="text-sm font-bold text-amber-700 bg-white/50 rounded px-3 py-1.5 mt-4 mb-2 shadow-sm flex items-center gap-2">📖 หน้าโปสเตอร์</div>';
+      
+      locations.forEach(loc => {
+        const pinEl = document.createElement('div');
+        pinEl.className = 'pin';
+        pinEl.id = `pin-${loc.id}`;
+        pinEl.style.left = `${loc.position.x}%`;
+        pinEl.style.top = `${loc.position.y}%`;
+        
+        pinEl.innerHTML = `
+          <div class="pin-tooltip">${loc.name}</div>
+          <div class="pulse-ring" style="background: ${loc.color}"></div>
+          <svg viewBox="0 0 24 32" fill="none" style="filter: drop-shadow(0px 4px 4px rgba(0,0,0,0.3));">
+            <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20c0-6.627-5.373-12-12-12z" fill="${loc.color}" stroke="white" stroke-width="1.5"/>
+            <circle cx="12" cy="12" r="7.5" fill="white"/>
+            <text x="12" y="16" fill="${loc.color}" font-size="11" font-weight="900" font-family="Prompt, sans-serif" text-anchor="middle">${loc.displayNumber}</text>
+          </svg>
+        `;
+        
+        pinEl.addEventListener('click', (e) => {
+          e.stopPropagation(); 
+          const isTouchDevice = window.matchMedia("(hover: none)").matches;
+
+          if (isTouchDevice) {
+            if (activeTooltipPin !== pinEl) {
+              if (activeTooltipPin) activeTooltipPin.classList.remove('force-show-tooltip');
+              pinEl.classList.add('force-show-tooltip');
+              activeTooltipPin = pinEl;
+            } else {
+              pinEl.classList.remove('force-show-tooltip');
+              activeTooltipPin = null;
+              showModal(loc);
+            }
+          } else {
+            showModal(loc);
+          }
+        });
+        fragmentPins.appendChild(pinEl);
+
+        const listBtn = document.createElement('div');
+        listBtn.className = 'sidebar-item';
+        listBtn.innerHTML = `
+          <div style="background: ${loc.color}; color: white; min-width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; border: 2px solid rgba(255,255,255,0.8); box-shadow: 0 2px 5px rgba(0,0,0,0.3);">
+             ${loc.displayNumber}
+          </div>
+          <div class="text-xs md:text-sm leading-tight">${loc.menuName}</div>
+        `;
+        
+        listBtn.addEventListener('click', () => {
+          if (window.innerWidth <= 768) {
+              toggleSidebar(); 
+          }
+          
+          const targetPin = document.getElementById(`pin-${loc.id}`);
+          
+          if (targetPin) {
+              targetPin.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+              
+              targetPin.classList.add('active', 'force-show-tooltip');
+              setTimeout(() => {
+                  targetPin.classList.remove('active', 'force-show-tooltip');
+              }, 3000);
+          }
+        });
+
+        if (loc.youtubeId !== null) {
+            mediaSection.appendChild(listBtn);
+        } else {
+            posterSection.appendChild(listBtn);
+        }
+      });
+      
+      pinsContainer.innerHTML = '';
+      pinsContainer.appendChild(fragmentPins);
+
+      sidebarListContainer.innerHTML = '';
+      sidebarListContainer.appendChild(mediaSection);
+      sidebarListContainer.appendChild(posterSection);
+    }
+
+    document.getElementById('map-wrapper').addEventListener('click', () => {
+      if (activeTooltipPin) {
+        activeTooltipPin.classList.remove('force-show-tooltip');
+        activeTooltipPin = null;
+      }
+    });
+
+    const modalOverlay = document.getElementById('modal-overlay');
+    const gameMenuOverlay = document.getElementById('game-menu-overlay');
+
+    // 🟢 ระบบล็อกหน้าจอแผนที่เวลาเปิด Modal 🟢
+    function showModal(location) {
+      if (location.youtubeId) {
+        window.open(`https://www.youtube.com/watch?v=${location.youtubeId}`, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      const poster = document.getElementById('modal-poster');
+      const videoContainer = document.getElementById('modal-video-container');
+      const videoFrame = document.getElementById('modal-video');
+
+      videoFrame.src = '';
+      poster.src = location.poster;
+      poster.style.display = 'block';
+      videoContainer.style.display = 'none';
+
+      modalOverlay.classList.add('active');
+      document.body.style.overflow = 'hidden'; 
+      mapScreen.style.overflowY = 'hidden'; // ล็อกฉากหลังไม่ให้เลื่อนตาม
+    }
+
+    function closeModal() {
+      const videoFrame = document.getElementById('modal-video');
+      modalOverlay.classList.remove('active');
+      document.body.style.overflow = ''; 
+      mapScreen.style.overflowY = 'auto'; // ปลดล็อกฉากหลัง
+      setTimeout(() => { 
+          videoFrame.src = ''; 
+          document.getElementById('modal-poster').src = ''; 
+      }, 300);
+    }
+
+    function openGameMenu() {
+        gameMenuOverlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        mapScreen.style.overflowY = 'hidden'; // ล็อกฉากหลังไม่ให้เลื่อนตาม
+    }
+
+    function closeGameMenu() {
+        gameMenuOverlay.classList.remove('active');
+        document.body.style.overflow = '';
+        mapScreen.style.overflowY = 'auto'; // ปลดล็อกฉากหลัง
+    }
+
+    modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+    gameMenuOverlay.addEventListener('click', (e) => { if (e.target === gameMenuOverlay) closeGameMenu(); });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (isMusicPlaying && !audio.paused) audio.pause();
+      } else {
+        if (isMusicPlaying && audio.paused) audio.play().catch(err => console.log("Auto-play prevented:", err));
+      }
+    });
+
+    createPinsAndList();
+
+  </script>
+ </body>
+</html>
